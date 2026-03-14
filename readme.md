@@ -1,6 +1,6 @@
 ## Melsi
 
-![Melsi screenshot](melsi screenshot.png)
+![Melsi screenshot](melsi%20screenshot.png)
 
 Melsi is a sketch, audio, and text based educational web app. It uses an LLM to understand user questions and to generate answers. It replies with slides of short texts and sketches. A user can select the number of slides of answers they get. It supports PDF (<=5MB) uploads.
 
