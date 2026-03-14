@@ -7,3 +7,14 @@ Melsi is a sketch, audio, and text based educational web app. It uses an LLM to 
 Melsi is designed to work for elementary school goers, but can be easily adapted for any age.
 
 SVGs are downloaded from the [Openart collection](https://drive.google.com/file/d/1_RFNcsB4u3WI2FyswIwvsV_Q08fxGnlb/view)
+
+The following setup worked on an NVIDIA GeForce RTX 4090. 
+
+Start the model server: 
+`vllm serve "./Llama-3-8B-instruct" --dtype float16 --gpu-memory-utilization 0.95 --max-model-len 8192 --max-num-seqs 32`
+
+Start the backend:
+`uvicorn backend:app --host 0.0.0.0 --port 8502`
+
+Then open in your browser:
+`http://localhost:8502`
