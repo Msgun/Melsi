@@ -1,0 +1,933 @@
+<head>
+	<meta charset="UTF-8">
+	<title>Melsi</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+	<script src="https://cdn.tailwindcss.com"></script>
+
+	<style>
+		/* entire page must NOT scroll */
+		html, body {
+			height: 100%;
+			overflow: auto;
+		}
+
+		/* scroll container height */
+		@media (max-width: 768px) {
+        	#chatScrollArea {
+        		height: calc(100% - 120px) !important; /* 48 top bar + 72 input bar */
+        	}
+        }
+
+		#chatScrollArea {
+			height: calc(100% - 72px);
+			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
+			max-height: calc(100% - 72px);
+            padding-bottom: 80px; /* input bar is ~72px, add a bit more */
+		}
+
+        /* currently a bit finicky, but works */
+        #chatScrollArea > div {
+            height: 100%;
+            overflow-y: auto;
+        } 
+
+        
+        #chatScrollArea > div > div {
+            height: auto;
+        } 
+		/* svg drawing */
+		.draw-path {
+			stroke-dasharray: 1000;
+			stroke-dashoffset: 1000;
+			animation: dash 3s linear forwards;
+		}
+
+		@keyframes dash {
+			to {
+				stroke-dashoffset: 0;
+			}
+		}
+
+		/* svg container */
+		#svgBox {
+			overflow: hidden;
+		}
+
+		#svgBox svg {
+			width: 100%;
+			height: 100%;
+		}
+
+		/* hand */
+		#hand {
+			position: absolute;
+			width: 100px;
+			display: none;
+		}
+
+		/* input stays fixed */
+		#inputWrapper {
+			position: fixed;
+			bottom: 0;
+			left: 0;
+			right: 0;
+			background: #f3f4f6;
+			border-top: 1px solid #ddd;
+			z-index: 50;
+		}
+        #chatSidebar {
+        	position: fixed;
+        	z-index: 3000;
+        }
+        
+        #mainContainer {
+        	position: relative;
+        	z-index: 1; /* must be lower than sidebar */
+        }
+        
+        #inputWrapper {
+        	position: fixed;
+        	z-index: 2;
+        }
+
+		/* mobile-friendly spacing */
+		#inputBar button {
+			flex-shrink: 0;
+		}
+
+		@media (max-width: 768px) {
+			#inputBar {
+				gap: 0.5rem;
+				padding: 0.5rem;
+			}
+			#prompt {
+				padding: 0.6rem;
+			}
+		}
+
+		/* SIDEBAR — always visible on desktop */
+		#chatSidebar {
+			transform: translateX(0);
+		}
+        
+		/* mobile: sidebar slides in */
+		@media (max-width: 768px) {
+			#chatSidebar {
+				transform: translateX(-100%);
+				transition: transform 0.25s ease;
+			}
+			#chatSidebar.open {
+				transform: translateX(0);
+			}
+		}
+
+		/* main content shifts right on desktop */
+		@media (min-width: 769px) {
+			#mainContainer {
+				margin-left: 16rem; /* 256px */
+			}
+            #inputWrapper {
+        		margin-left: 16rem; /* match mainContainer */
+        		width: calc(100% - 16rem);
+        	}
+            #topBar {
+        		margin-left: 16rem; /* match sidebar width */
+        		width: calc(100% - 16rem);
+        	}
+		}
+        #sidebarToggleOpen {
+        	z-index: 9999 !important;
+        }
+        #topBar {
+        	height: 48px;
+        }
+        
+        #mainContainer {
+        	margin-top: 48px; /* push everything below the bar */
+        }
+
+        #pdfLimitNotice {
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+        }
+        #loader {
+        	font-size: 1.25rem; /* phone default */
+        	font-weight: 600;
+        	color: #374151;
+        	text-align: center;
+        	line-height: 1.45;
+        	padding: 0 1.25rem;
+        }
+        
+        @media (min-width: 768px) {
+        	#loader {
+        		font-size: 1.75rem; /* desktop */
+        	}
+        }
+        #stage {
+        	position: relative;
+        }
+        
+        .stage-inner {
+        	position: absolute;
+        	top: 50%;
+        	left: 50%;
+        	transform: translate(-50%, -50%);
+        	width: 100%;
+            
+        	display: flex;
+        	flex-direction: column;
+        	align-items: center;
+        	justify-content: center;
+        }
+
+
+
+
+	</style>
+</head>
+
+<body class="bg-gray-100">
+
+	<!-- SIDEBAR -->
+	<div id="chatSidebar"
+		class="fixed left-0 top-0 h-full w-64 bg-white border-r shadow-lg p-4 overflow-y-auto">
+
+		<div class="flex justify-between items-center mb-4">
+        	<div class="text-lg font-bold">Chats</div>
+        
+        	<div class="flex items-center gap-2">
+            	<button id="newChatBtn"
+            		class="px-2 py-1 bg-black text-white rounded text-sm">
+            		New chat
+            	</button>
+            
+            	<button id="sidebarToggle"
+            		class="md:hidden px-2 py-1 border rounded">
+            		✕
+            	</button>
+            </div>
+
+        </div>
+
+
+		<div id="chatList" class="flex flex-col gap-2"></div>
+	</div>
+    <div id="topBar" class="fixed top-0 left-0 right-0 bg-white border-b h-12 flex items-center px-3 z-50">
+    	<button id="sidebarToggleOpen" class="md:hidden mr-3 text-2xl">☰</button>
+    	<div id="topBarTitle" class="font-bold text-xl md:text-2xl">Melsi</div>
+    </div>
+
+
+	<!-- MAIN CONTENT -->
+	<div id="mainContainer">
+
+		<!-- CHATBOT-LIKE SCROLL REGION -->
+		<div id="chatScrollArea" class="flex flex-col items-center w-full">
+
+			<div class="w-full max-w-[800px] p-4">
+
+				<!-- HISTORY BUBBLES -->
+				<div id="chatHistory" class="flex flex-col gap-4"></div>
+
+				<!-- STAGE (latest assistant message) -->
+				<div id="stageWrapper">
+					<div id="stage"
+                    	class="relative bg-white w-full h-[55vh] md:h-[450px] border">
+                    
+                    	<div class="stage-inner">
+                    
+                    		<div id="loader">What would you like to know about?</div>
+                    
+                    		<div id="scene" class="hidden flex flex-col items-center">
+                    			<div id="svgBox" class="w-40 h-40 md:w-64 md:h-64"></div>
+                    			<p id="text" class="text-base md:text-2xl mt-3 text-center px-3"></p>
+                    		</div>
+                    
+                    		<img id="hand" src="/static/hand_pencil.png">
+                    	</div>
+                    </div>
+
+				</div>
+
+			</div>
+		</div>
+
+		<!-- FIXED INPUT BAR -->
+		<div id="inputWrapper">
+			<div id="inputBar" class="w-full max-w-[800px] mx-auto flex gap-2 p-3">
+
+				<!-- scene count control -->
+				<div class="flex flex-col items-center justify-center border bg-white px-2 py-1">
+					<button onclick="incScenes()" class="text-xl leading-none">▲</button>
+					<span id="sceneCountLabel" class="text-sm">1</span>
+					<button onclick="decScenes()" class="text-xl leading-none">▼</button>
+				</div>
+
+				<!-- input -->
+				<input id="prompt" class="border p-3 flex-1 rounded-md"
+					placeholder="Ask anything"
+					onkeydown="if(event.key==='Enter') run()">
+
+				<!-- hidden pdf input -->
+				<input type="file" id="pdfInput" accept="application/pdf" class="hidden">
+
+				<!-- pdf button -->
+				<button id="pdfBtn"
+					onclick="document.getElementById('pdfInput').click()"
+					class="w-10 h-10 flex items-center justify-center rounded-full border bg-gray-200 text-lg font-bold">
+					📄
+				</button>
+
+				<!-- send button -->
+				<button id="askBtn"
+					onclick="run()"
+					class="w-10 h-10 flex items-center justify-center rounded-full bg-black text-white">
+					➤
+				</button>
+
+			</div>
+		</div>
+
+	</div><!-- END mainContainer -->
+    <div id="pdfLimitNotice"
+         class="fixed inset-0 bg-black/40 flex items-center justify-center z-[99999] hidden">
+        <div class="bg-white p-4 rounded-lg shadow-lg text-center max-w-xs relative">
+            <button id="pdfLimitClose" class="absolute top-2 right-2 text-gray-500 text-xl">×</button>
+            <p class="font-semibold">File too large. Please upload a PDF smaller than 5 MB.</p>
+        </div>
+    </div>
+    <div id="deleteChatNotice"
+         class="fixed inset-0 bg-black/40 flex items-center justify-center z-[99999] hidden">
+        <div class="delete-chat-box bg-white p-6 rounded-lg shadow-lg text-center w-72 relative">
+            <button id="deleteChatClose" class="absolute top-2 right-2 text-gray-500 text-xl">×</button>
+            <p class="font-semibold mb-4 text-lg">Delete this chat?</p>
+            <p class="text-sm text-gray-600 mb-4">This action cannot be undone.</p>
+            <button id="deleteChatConfirm"
+                    class="bg-red-500 text-white px-4 py-2 rounded w-full font-semibold">
+                Delete
+            </button>
+        </div>
+    </div>
+
+
+
+</body>
+
+<script>
+	/* STATE */
+	let chatHistory = [];
+	let sceneCount = 1;
+	let generation = 0;
+	let isRunning = false;
+	let lastAnswer = null;
+    let hasUncommittedAnswer = false;
+    
+	/* MULTI-CHAT STATE */
+	let chats = {};
+	let activeChat = null;
+
+	/* load chats */
+	function loadChats() {
+		const raw = localStorage.getItem("multiChats");
+		if (raw) {
+			const obj = JSON.parse(raw);
+			chats = obj.chats || {};
+			activeChat = obj.activeChat || null;
+		}
+		/* initialize first chat if none */
+		if (!activeChat) {
+			activeChat = "chat_" + Date.now();
+			chats[activeChat] = {
+				history: [],
+				pdfText: "",
+				pdfUploaded: false,
+				pdfInjected: false
+			};
+			saveChats();
+		}
+	}
+
+	/* save chats */
+	function saveChats() {
+		localStorage.setItem("multiChats", JSON.stringify({
+			chats,
+			activeChat
+		}));
+	}
+
+	/* switch chat */
+	function switchChat(id) {
+    	activeChat = id;
+    	const c = chats[id];
+    
+    	/* fix: ensure new chat is a clean slate */
+    	lastAnswer = null;
+    	svgBox.innerHTML = "";
+    	textBox.innerText = "";
+    	hand.style.display = "none";
+    	loader.classList.remove("hidden");
+    	loader.innerText = "What would you like to know about?";
+    	scene.classList.add("hidden");
+    
+    	chatHistory = c.history || [];
+    	renderHistory(chatHistory);
+        // reset scroll position for new chat
+        // chatScroll.scrollTop = chatScroll.scrollHeight; // did not work for phone browser
+    	document.getElementById("stage").scrollIntoView({ behavior: "auto", block: "start" });
+        
+    	saveChats();
+    	renderChatList();
+    }
+
+
+	/* create new chat */
+	function createNewChat() {
+		const id = "chat_" + Date.now();
+		chats[id] = {
+			history: [],
+			pdfText: "",
+			pdfUploaded: false,
+			pdfInjected: false
+		};
+		activeChat = id;
+		saveChats();
+		renderChatList();
+		switchChat(id);
+	}
+
+    let openMenu = null;
+    function openChatMenu(chatId, anchorEl) {
+        if (openMenu) openMenu.remove();
+    
+        const menu = document.createElement("div");
+        menu.className = "absolute bg-white border rounded shadow-lg p-2 z-[9999]";
+        menu.style.position = "fixed";
+    
+        const rect = anchorEl.getBoundingClientRect();
+        menu.style.top = rect.bottom + "px";
+        menu.style.left = (rect.right - 120) + "px"; // width fit
+    
+        const del = document.createElement("div");
+        del.innerText = "Delete Chat";
+        del.className = "cursor-pointer text-red-600 px-2 py-1 hover:bg-red-50";
+        del.onclick = () => {
+            menu.remove();
+            openMenu = null;
+            confirmDeleteChat(chatId);
+        };
+    
+        menu.appendChild(del);
+        document.body.appendChild(menu);
+        openMenu = menu;
+    
+        // click outside to close
+        setTimeout(() => {
+            document.addEventListener("click", closeMenuHandler);
+        }, 50);
+    
+        function closeMenuHandler(e) {
+            if (!menu.contains(e.target)) {
+                menu.remove();
+                openMenu = null;
+                document.removeEventListener("click", closeMenuHandler);
+            }
+        }
+    }
+
+    
+	/* render chat list */
+	function renderChatList() {
+        const box = document.getElementById("chatList");
+        box.innerHTML = "";
+    
+        Object.keys(chats).reverse().forEach(id => {
+            const c = chats[id];
+            const title = c.history.length ? c.history[0].user : "New chat";
+    
+            const div = document.createElement("div");
+            div.className =
+                "p-2 border rounded flex justify-between items-center cursor-pointer " +
+                (id === activeChat ? "bg-gray-200 font-bold" : "bg-white");
+    
+            // main clickable title
+            const titleDiv = document.createElement("div");
+            titleDiv.innerText = title;
+            div.onclick = () => switchChat(id);
+    
+            div.appendChild(titleDiv);
+    
+            // only show dots if chat has conversation
+            if (c.history.length > 0) {
+                const menuBtn = document.createElement("button");
+                menuBtn.innerHTML = "⋮";
+                menuBtn.className = "text-xl px-2";
+                
+                menuBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    openChatMenu(id, menuBtn);
+                };
+    
+                div.appendChild(menuBtn);
+            }
+    
+            box.appendChild(div);
+        });
+    }
+    let pendingDeleteChat = null;
+
+    function confirmDeleteChat(chatId) {
+        pendingDeleteChat = chatId;
+    
+        const popup = document.getElementById("deleteChatNotice");
+        popup.classList.remove("hidden");
+    
+        const inner = popup.querySelector(".delete-chat-box");
+        const closeBtn = document.getElementById("deleteChatClose");
+        const confirmBtn = document.getElementById("deleteChatConfirm");
+    
+        closeBtn.onclick = close;
+        confirmBtn.onclick = () => {
+            close();
+            deleteChat(chatId);
+        };
+    
+        function outsideClick(e) {
+            if (!inner.contains(e.target)) {
+                close();
+            }
+        }
+    
+        function close() {
+            popup.classList.add("hidden");
+            pendingDeleteChat = null;
+            document.removeEventListener("click", outsideClick);
+        }
+    
+        setTimeout(() => {
+            document.addEventListener("click", outsideClick);
+        }, 150);
+    }
+
+
+    
+    function deleteChat(chatId) {
+        delete chats[chatId];
+    
+        // if deleting active chat → switch to newest remaining
+        const ids = Object.keys(chats);
+        if (ids.length === 0) {
+            // recreate empty chat
+            createNewChat();
+        } else {
+            activeChat = ids[ids.length - 1];
+        }
+        saveChats();
+        renderChatList();
+        switchChat(activeChat);
+    }
+
+
+	/* DOM CONTENT LOADED */
+	document.addEventListener("DOMContentLoaded", () => {
+		loadChats();
+		renderChatList();
+		switchChat(activeChat);
+        promptBox.focus(); /* activate input field immediately */
+	});
+
+	/* ELEMENTS */
+	const sceneCountLabel = document.getElementById("sceneCountLabel");
+	const askBtn = document.getElementById("askBtn");
+	const loader = document.getElementById("loader");
+	const scene = document.getElementById("scene");
+	const svgBox = document.getElementById("svgBox");
+	const textBox = document.getElementById("text");
+	const hand = document.getElementById("hand");
+	const promptBox = document.getElementById("prompt");
+	const chatDiv = document.getElementById("chatHistory");
+	const chatScroll = document.getElementById("chatScrollArea");
+
+	const pdfInput = document.getElementById("pdfInput");
+	const pdfBtn = document.getElementById("pdfBtn");
+
+	/* PDF upload (per chat) */
+	pdfInput.addEventListener("change", async () => {
+		const file = pdfInput.files[0];
+		if (!file) return;
+        // SIZE LIMIT CHECK (5 MB)
+        if (file.size > 5 * 1024 * 1024) {
+            showPdfLimitNotice();
+            pdfInput.value = ""; // reset file input
+            return;
+        }
+
+
+		const form = new FormData();
+		form.append("file", file);
+
+		pdfBtn.innerText = "⏳";
+		pdfBtn.classList.remove("bg-green-300");
+		pdfBtn.classList.add("bg-yellow-300");
+
+		try {
+			const res = await fetch("/upload_pdf", {
+				method: "POST",
+				body: form
+			});
+			const j = await res.json();
+
+			if (j.success) {
+				const text = j.text || "";
+
+				chats[activeChat].pdfUploaded = true;
+				chats[activeChat].pdfText = text;
+				chats[activeChat].pdfInjected = false;
+				saveChats();
+
+				pdfBtn.innerText = "✔️";
+				pdfBtn.classList.add("bg-green-300");
+
+				pdfBtn.classList.remove("bg-yellow-300");
+				pdfBtn.classList.add("bg-green-300");
+			} else {
+				if (j.error === "too_big") {
+                    showPdfLimitNotice();
+                    pdfInput.value = "";
+                    return;
+                }
+            
+                /*pdfBtn.innerText = "⚠️";
+				pdfBtn.classList.add("bg-red-300");
+				pdfBtn.classList.remove("bg-yellow-300");*/
+			}
+
+		} catch (e) {
+			pdfBtn.innerText = "❌";
+			pdfBtn.classList.remove("bg-yellow-300");
+			pdfBtn.classList.add("bg-red-300");
+		}
+	});
+
+	/* scene count buttons */
+	function incScenes() {
+		if (!isRunning && sceneCount < 8) {
+			sceneCount++;
+			sceneCountLabel.innerText = sceneCount;
+		}
+	}
+	function decScenes() {
+		if (!isRunning && sceneCount > 1) {
+			sceneCount--;
+			sceneCountLabel.innerText = sceneCount;
+		}
+	}
+
+	/* scroll */
+	function scrollToCurrentScene() {
+        document.getElementById("stage").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+	/* save history */
+	function saveHistory() {
+		chats[activeChat].history = chatHistory;
+		saveChats();
+	}
+
+	/* render history */
+	function renderHistory(hist) {
+		chatDiv.innerHTML = "";
+		hist.forEach(turn => {
+			const entry = document.createElement("div");
+			entry.className = "bg-white p-3 border rounded shadow";
+			entry.innerHTML = `
+				<div class="font-bold">You:</div>
+				<div>${turn.user}</div>
+				<div class="font-bold mt-2">Answer:</div>
+				<div>${turn.scenes[0].text}</div>
+			`;
+			chatDiv.appendChild(entry);
+		});
+	}
+
+	/* MAIN RUN */
+	async function run() {
+		const c = chats[activeChat];
+
+		if (lastAnswer && hasUncommittedAnswer) {
+            const entry = document.createElement("div");
+            entry.className = "bg-white p-3 border rounded shadow";
+            entry.innerHTML = `
+                <div class="font-bold">You:</div>
+                <div>${lastAnswer.user}</div>
+                <div class="font-bold mt-2">Answer:</div>
+                <div>${lastAnswer.text}</div>
+            `;
+            chatDiv.appendChild(entry);
+            lastAnswer = null;
+            hasUncommittedAnswer = false;
+        }
+
+
+		if (isRunning) {
+			promptBox.focus();
+			generation++;
+			speechSynthesis.cancel();
+			hand.style.display = "none";
+			//loader.innerText = "What would you like to know about?";
+			//loader.classList.remove("hidden");
+			//scene.classList.add("hidden");
+
+            // Keep current scene visible; just stop speech/SVG animations
+            loader.classList.add("hidden");
+            scene.classList.remove("hidden");
+
+			askBtn.innerHTML = "➤";
+			isRunning = false;
+
+            // Restore initial scroll position to keep stage fully visible
+            document.getElementById("stage").scrollIntoView({ behavior: "auto", block: "start" });
+
+			return;
+		}
+
+		const promptValue = promptBox.value.trim();
+		if (!promptValue) return;
+
+		if (!isRunning) promptBox.value = "";
+
+		generation++;
+		const myGen = generation;
+
+		svgBox.innerHTML = "";
+		textBox.innerText = "";
+		hand.style.display = "none";
+
+		loader.innerText = "thinking...";
+		scene.classList.add("hidden");
+
+		askBtn.innerText = "■";
+		isRunning = true;
+
+		/* BUILD PROPER HISTORY STRUCTURE FOR BACKEND */
+		const backendHistory = c.history.map(h => ({
+			user: h.user,
+			scenes: h.scenes
+		}));
+
+		/* REQUEST */
+		const res = await fetch("/generate_storyboard", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Chat-ID": activeChat
+			},
+			body: JSON.stringify({
+				prompt: promptValue,
+				scenes: sceneCount,
+				history: backendHistory,
+				pdfText: c.pdfText,
+				pdfUploaded: c.pdfUploaded,
+				pdfInjected: c.pdfInjected
+			})
+		});
+
+		if (myGen !== generation) return;
+
+		const cloned = res.clone();
+		const scenes = await cloned.json();
+
+		const historyHeader = res.headers.get("X-Chat-History");
+		if (historyHeader) {
+			c.history = JSON.parse(historyHeader);
+			chatHistory = c.history;
+		}
+
+		/* update per-chat pdfInjected */
+		c.pdfInjected = true;
+		saveChats();
+
+		chatHistory.push({ user: promptValue, scenes });
+		saveHistory();
+		renderChatList();
+
+		lastAnswer = { user: promptValue, text: scenes[0].text };
+
+		play(scenes, myGen);
+	}
+
+	/* ANIMATION */
+	async function play(scenes, myGen) {
+		svgBox.style.display = "";
+		loader.classList.add("hidden");
+		scene.classList.remove("hidden");
+
+		const stage = document.getElementById("stage");
+		hand.style.position = "absolute";
+
+		const c = chats[activeChat];
+
+		for (const s of scenes) {
+			if (myGen !== generation) return;
+
+			textBox.innerText = s.text;
+			scrollToCurrentScene();
+
+			const speechPromise = speak(s.text);
+
+			if (c.pdfUploaded) {
+				svgBox.innerHTML = "";
+				svgBox.style.display = "none";
+				hand.style.display = "none";
+				await speechPromise;
+				continue;
+			}
+
+			svgBox.style.display = "";
+			const svg = await fetch(`/svg/${s.svg}`).then(r => r.text());
+			svgBox.innerHTML = svg;
+
+			const finalSVG = svg;
+			const paths = svgBox.querySelectorAll("path,circle,rect,line,polyline,polygon,ellipse");
+
+			paths.forEach((p, i) => {
+				const len = p.getTotalLength?.() || 1000;
+				const origFill = p.getAttribute("fill");
+				const origStroke = p.getAttribute("stroke");
+
+				p.style.fill = "none";
+				p.style.stroke = origStroke || "black";
+				p.style.strokeDasharray = len;
+				p.style.strokeDashoffset = len;
+				p.style.animation = "none";
+				p.getBoundingClientRect();
+
+				requestAnimationFrame(() => {
+					p.style.animation = `dash 0.4s linear ${i * 0.12}s forwards`;
+				});
+
+				setTimeout(() => {
+					if (myGen !== generation) return;
+					if (origFill) p.setAttribute("fill", origFill);
+					if (origStroke) p.setAttribute("stroke", origStroke);
+				}, (i * 0.12 + 0.4) * 1000);
+			});
+
+			const boxRect = svgBox.getBoundingClientRect();
+			const stageRect = stage.getBoundingClientRect();
+			const handW = hand.offsetWidth;
+			const handH = hand.offsetHeight;
+
+			const xMin = (boxRect.left - stageRect.left) + 0.1 * boxRect.width;
+			const xMax = (boxRect.left - stageRect.left) + 0.9 * boxRect.width - handW;
+			const yMid = (boxRect.top - stageRect.top) + boxRect.height / 2 - handH / 2;
+
+			hand.style.display = "block";
+
+			const anim = hand.animate(
+				[
+					{ left: `${xMin}px`, top: `${yMid - 6}px` },
+					{ left: `${(xMin + xMax) / 2}px`, top: `${yMid + 6}px` },
+					{ left: `${xMax}px`, top: `${yMid - 6}px` }
+				],
+				{ duration: 1200, easing: "ease-in-out" }
+			);
+
+			await anim.finished;
+			hand.style.display = "none";
+			svgBox.innerHTML = finalSVG;
+
+			await speechPromise;
+		}
+
+		askBtn.innerHTML = "➤";
+		isRunning = false;
+        hasUncommittedAnswer = true;
+	}
+
+	/* speech */
+	function speak(t) {
+		return new Promise(res => {
+			speechSynthesis.cancel();
+			const u = new SpeechSynthesisUtterance(t);
+			u.onend = res;
+			speechSynthesis.speak(u);
+		});
+	}
+
+	/* MOBILE KEYBOARD FIX */
+	const inputWrapper = document.getElementById("inputWrapper");
+
+	function adjustForKeyboard() {
+		if (!window.visualViewport) return;
+
+		const vp = window.visualViewport;
+		const keyboardOffset = window.innerHeight - vp.height - vp.offsetTop;
+
+		inputWrapper.style.transform =
+			keyboardOffset > 0 ? `translateY(-${keyboardOffset}px)` : "translateY(0)";
+
+		chatScroll.style.height = `calc(${vp.height}px - 72px)`;
+	}
+
+	window.visualViewport.addEventListener("resize", adjustForKeyboard);
+	window.visualViewport.addEventListener("scroll", adjustForKeyboard);
+
+	/* MOBILE SIDEBAR TOGGLE */
+	document.getElementById("sidebarToggle").onclick = () => {
+    	document.getElementById("chatSidebar").classList.remove("open");
+    };
+
+	document.getElementById("newChatBtn").onclick = () => {
+		createNewChat();
+	};
+    document.getElementById("sidebarToggleOpen").onclick = () => {
+    	document.getElementById("chatSidebar").classList.add("open");
+    };
+    document.addEventListener("click", (e) => {
+    	const sidebar = document.getElementById("chatSidebar");
+    
+    	/* ignore if click is inside sidebar */
+    	if (sidebar.contains(e.target)) return;
+    
+    	/* ignore if click is on burger button */
+    	if (e.target.id === "sidebarToggleOpen") return;
+    
+    	/* ignore on desktop */
+    	if (window.innerWidth >= 769) return;
+    
+    	/* close sidebar on mobile */
+    	sidebar.classList.remove("open");
+    });
+
+    function showPdfLimitNotice() {
+
+        const box = document.getElementById("pdfLimitNotice");
+        box.classList.remove("hidden");
+    
+        const closeBtn = document.getElementById("pdfLimitClose");
+    
+        function hide() {
+            box.classList.add("hidden");
+            document.removeEventListener("click", outsideClick);
+        }
+    
+        closeBtn.onclick = hide;
+    
+        // WAIT LONGER so mobile tap does NOT trigger immediate close
+        function outsideClick(e) {
+            const inner = box.querySelector("div");
+            if (!inner.contains(e.target)) hide();
+        }
+    
+        setTimeout(() => {
+            document.addEventListener("click", outsideClick);
+        }, 150);  // ← KEY FIX
+    }
+
+
+</script>
