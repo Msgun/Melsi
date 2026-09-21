@@ -18,3 +18,16 @@ Start the backend:<br>
 
 Then open in your browser:<br>
 `http://localhost:8502`
+
+### How to Cite
+
+If you use this code in your research, please cite our code as follows:
+
+```bibtex
+@software{hagos2026melsi_code,
+  author = {Hagos, Misgina Tsighe},
+  title  = {Melsi},
+  year   = {2026},
+  url    = {https://github.com/Msgun/Melsi}
+}
+```
